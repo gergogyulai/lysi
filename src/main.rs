@@ -177,13 +177,9 @@ fn main() {
 
     for entry in WalkDir::new(&config.input_dir) {
         match entry {
-            Ok(entry) => {
-                let path = entry.path();
-                if path.is_file() {
-                    process_file(&config, path);
-                }
-            }
+            Ok(entry) if entry.path().is_file() => process_file(&config, entry.path()),
             Err(e) => eprintln!("Error walking directory: {}", e),
+            _ => {}
         }
     }
 }
