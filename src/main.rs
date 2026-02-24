@@ -159,9 +159,11 @@ fn process_file(config: &Config, path: &Path) {
 }
 
 fn main() {
+    let input_raw = shellexpand::tilde("~/Photolibrary/lysi_samples").to_string();
+    let output_raw = shellexpand::tilde("~/Pictures/Organized").to_string();
     let config = Config {
-        input_dir: PathBuf::from("~/Unified Photolibrary/lysi_samples"),
-        output_dir: PathBuf::from("~/Pictures/Organized"),
+        input_dir: PathBuf::from(input_raw),
+        output_dir: PathBuf::from(output_raw),
         copy_only: true,
     };
 
