@@ -1,61 +1,19 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
-use exif::{Exif, In, Tag};
 use std::ffi::OsStr;
 use std::fs::{self, File};
-use std::io::{Cursor, Read};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use twox_hash::XxHash3_64;
 use walkdir::WalkDir;
 
+mod metadata;
 mod move_file;
+
 use crate::move_file::move_file;
+use metadata::{FileInfo, build_output_path, generate_filename};
 
 struct Config {
     input_dir: PathBuf,
     output_dir: PathBuf,
     copy_only: bool,
-}
-
-struct FileInfo {
-    date: Option<NaiveDateTime>,
-    model: String,
-}
-
-fn extract_file_info(exif: &Exif) -> FileInfo {
-    let date = exif
-        .get_field(Tag::DateTimeOriginal, In::PRIMARY)
-        .map(|f| f.display_value().to_string())
-        .and_then(|s| NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S").ok());
-
-    let model = exif
-        .get_field(Tag::Model, In::PRIMARY)
-        .map(|f| f.display_value().to_string().replace('"', ""))
-        .unwrap_or_else(|| "UnknownModel".to_string());
-
-    FileInfo { date, model }
-}
-
-fn generate_filename(info: &FileInfo, file_bytes: &[u8]) -> String {
-    let timestamp = info
-        .date
-        .map(|dt| dt.format("%Y%m%d_%H%M%S").to_string())
-        .unwrap_or_else(|| "UnknownDate".to_string());
-
-    let hash_val = XxHash3_64::oneshot(file_bytes);
-    let short_hash = format!("{:016x}", hash_val)[..8].to_string();
-
-    format!("{}_{}_{}", timestamp, info.model, short_hash)
-}
-
-fn build_output_path(output_root: &Path, info: &FileInfo, filename: &str) -> PathBuf {
-    match info.date {
-        Some(dt) => output_root
-            .join(dt.format("%Y").to_string())
-            .join(dt.format("%m").to_string())
-            .join(dt.format("%d").to_string())
-            .join(filename),
-        None => output_root.join("UnknownDate").join(filename),
-    }
 }
 
 fn process_with_info(
@@ -65,8 +23,7 @@ fn process_with_info(
     file_bytes: &[u8],
     extension: &str,
 ) {
-    let new_file_stem = generate_filename(info, file_bytes);
-    let filename = format!("{}.{}", new_file_stem, extension);
+    let filename = format!("{}.{}", generate_filename(info, file_bytes), extension);
     let new_path = build_output_path(&config.output_dir, info, &filename);
 
     if new_path.exists() {
@@ -91,47 +48,25 @@ fn process_with_info(
         move_file(path, &new_path)
     };
 
-    let action_verb = if config.copy_only { "Copy" } else { "Move" };
-
+    let action = if config.copy_only { "Copy" } else { "Move" };
     match result {
-        Ok(_) => {
-            println!(
-                "{} successful: {} -> {}",
-                action_verb,
-                path.display(),
-                new_path.display()
-            )
-        }
-        Err(e) => {
-            eprintln!(
-                "Failed to {} {} -> {}: {}",
-                action_verb.to_lowercase(),
-                path.display(),
-                new_path.display(),
-                e
-            )
-        }
+        Ok(_) => println!(
+            "{} successful: {} -> {}",
+            action,
+            path.display(),
+            new_path.display()
+        ),
+        Err(e) => eprintln!(
+            "Failed to {} {} -> {}: {}",
+            action.to_lowercase(),
+            path.display(),
+            new_path.display(),
+            e
+        ),
     }
 }
 
 fn process_file(config: &Config, path: &Path) {
-    let mut buffer = Vec::new();
-
-    {
-        let mut file = match File::open(path) {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("Failed to open {}: {}", path.display(), e);
-                return;
-            }
-        };
-
-        if let Err(e) = file.read_to_end(&mut buffer) {
-            eprintln!("Failed to read {}: {}", path.display(), e);
-            return;
-        }
-    }
-
     let extension = match path.extension().and_then(OsStr::to_str) {
         Some(ext) => ext,
         None => {
@@ -140,18 +75,17 @@ fn process_file(config: &Config, path: &Path) {
         }
     };
 
-    let info = match exif::Reader::new().read_from_container(&mut Cursor::new(&buffer)) {
-        Ok(exif) => extract_file_info(&exif),
-        Err(e) => {
-            eprintln!("No EXIF data in {} ({}), using defaults", path.display(), e);
-            let date = fs::metadata(path)
-                .ok()
-                .and_then(|m| m.created().ok())
-                .map(|t| DateTime::<Utc>::from(t).naive_utc());
-            FileInfo {
-                date,
-                model: "UnknownModel".to_string(),
-            }
+    let mut buffer = Vec::new();
+    if let Err(e) = File::open(path).and_then(|mut f| f.read_to_end(&mut buffer)) {
+        eprintln!("Failed to read {}: {}", path.display(), e);
+        return;
+    }
+
+    let info = match metadata::extract(extension, &buffer, path) {
+        Some(info) => info,
+        None => {
+            eprintln!("Skipping {}: unsupported file type", path.display());
+            return;
         }
     };
 
