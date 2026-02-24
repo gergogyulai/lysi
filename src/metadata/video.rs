@@ -24,7 +24,7 @@ pub fn extract(path: &Path) -> FileInfo {
                 .and_then(|t| t.creation_time.as_ref())
                 .and_then(|dt_str| {
                     DateTime::parse_from_rfc3339(dt_str)
-                        .map(|dt| dt.with_timezone(&Utc).naive_utc())
+                        .map(|dt| dt.with_timezone(&Utc).naive_local())
                         .ok()
                 });
 
