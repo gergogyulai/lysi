@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use twox_hash::XxHash3_64;
 use walkdir::WalkDir;
 
-mod utils;
-use crate::utils::move_file;
+mod move_file;
+use crate::move_file::move_file;
 
 struct Config {
     input_dir: PathBuf,
@@ -160,9 +160,7 @@ fn process_file(config: &Config, path: &Path) {
 
 fn main() {
     let config = Config {
-        input_dir: PathBuf::from(
-            "~/Unified Photolibrary/lysi_samples",
-        ),
+        input_dir: PathBuf::from("~/Unified Photolibrary/lysi_samples"),
         output_dir: PathBuf::from("~/Pictures/Organized"),
         copy_only: true,
     };
